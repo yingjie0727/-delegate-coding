@@ -1,0 +1,13 @@
+{
+  "agents/openai.yaml": "e16ddc987a5ffa1659d10b866644d648c034d7491d7c577ad568ead7e0733296",
+  "assets/assistants.json": "07f15f7de408bf37b362af4852203e5d61cbd6ba3ef9336b274c83e848ab41e7",
+  "assets/task.example.json": "cb81501afb567cb9ca25a525675804621e633fba193e7b72766e5a1f3266546a",
+  "references/api-route.md": "4cab485f85bb9ae3fd26a0302fefddf18b7b113d660518e68a11c752f616b53f",
+  "references/desktop-route.md": "1650b7c52ed73efc127aef7c374acdb9755a0e283793fb49af5d620f2ffdf5fb",
+  "references/task-protocol.md": "17233346b0c4307e57f645760b06c23a1ae5027a27c50492be42117190c8cbfa",
+  "scripts/api_worker.py": "9c27c79ce033810bac7b1e6fa5277b2df85209972b32b3aea9ab9d6caffb8b90",
+  "scripts/delegate.py": "a2cbf880be16afcd425711b9c64c6e82b56801e2ca499a0b8b79d5f3bff88417",
+  "scripts/test_api_worker.py": "3ae67551c65ba1ad537a45decad9f3635743205d67d4e85ec6af53a928e303e5",
+  "scripts/test_delegate.py": "844abda72ffff23badce3599f527dc55ff5969332f7d34efec4eb1c44b4517cc",
+  "SKILL.md": "b9967561f1e76424368a1fe87f761b28abdbe031cfaefa0ed98e29b60c4b6676"
+}

@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "assistants": {
+    "workbuddy": {
+      "display_name": "腾讯 WorkBuddy 桌面助手",
+      "transport": "shared-folder",
+      "verification": "file-roundtrip-confirmed",
+      "auto_dispatch": false,
+      "handoff": "copy-paste-prompt",
+      "verification_scope": "本会话中，用户已让 WorkBuddy 读取测试 TASK.md 并写回结果文件；这只确认基础文件往返，不代表新任务协议、自动派发、原生接口或代码任务已验证。",
+      "setup_notes": "在 WorkBuddy 中打开任务指定的工作目录，复制派发文字并发送。只授予本次任务需要的目录访问权限。",
+      "documentation": [
+        {
+          "title": "WorkBuddy 官方文档：右侧边栏",
+          "url": "https://www.workbuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Right-Sidebar"
+        }
+      ]
+    },
+    "zcode": {
+      "display_name": "智谱 ZCode",
+      "transport": "shared-folder",
+      "verification": "pending-user-test",
+      "auto_dispatch": false,
+      "handoff": "copy-paste-prompt",
+      "verification_scope": "官方文档说明 ZCode 可使用项目工作区、引用文件、读写文件和执行命令；本机尚未完成此 skill 的文件往返或代码任务测试。",
+      "setup_notes": "在 ZCode 打开任务指定的工作目录，复制派发文字并发送；找不到文件时可用 @ 引用任务文件。不要把 ZCode 的 MCP 客户端能力当作 Codex 可直接调用它的接口。",
+      "documentation": [
+        {
+          "title": "ZCode 官方文档：安装与首次启动",
+          "url": "https://zcode.z.ai/cn/docs/install"
+        },
+        {
+          "title": "ZCode 官方文档：ZCode Agent",
+          "url": "https://zcode.z.ai/cn/docs/agents"
+        },
+        {
+          "title": "ZCode 官方文档：MCP",
+          "url": "https://zcode.z.ai/cn/docs/mcp-services"
+        }
+      ]
+    },
+    "generic": {
+      "display_name": "其他桌面助手",
+      "transport": "shared-folder",
+      "verification": "pending-user-test",
+      "auto_dispatch": false,
+      "handoff": "copy-paste-prompt",
+      "verification_scope": "通用占位适配器。只有能读取任务指定目录并将结构化结果写回的助手才适用；每种助手都需要先做文件往返测试。",
+      "setup_notes": "将派发文字复制到所选助手，允许访问工作目录与任务目录。若它只能回复聊天而不能写文件，不要认定此适配器已通过。",
+      "documentation": []
+    }
+  }
+}
