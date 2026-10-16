@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.env
+.env.*
+*.dpapi
+auth.json
+worker.json
+.codex/
+work/
+**/codex-home/
+**/diagnostic-home/
+**/jobs/
+**/runs/
+**/locks/
