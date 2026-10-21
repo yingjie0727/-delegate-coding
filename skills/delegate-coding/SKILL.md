@@ -7,6 +7,10 @@ description: 大脑控制小脑：由 GPT 负责规划和验收，将范围明�
 
 GPT 是负责规划和验收的“大脑”，桌面助手或 API 模型是负责具体实现的“小脑”。内部调用名保持 `$delegate-coding`，也可以直接要求使用“大脑控制小脑”。
 
+## 本机运行路径
+
+首次配置 API 路线时，按 [运行路径配置](references/runtime-paths.md) 定位并记录这台电脑已验证的 Python、Codex CLI 和私有 profile。随包脚本从本 Skill 所在目录解析。后续使用已记录的位置，不要求用户每次手输绝对路径。共享源码只保留通用方法，个人路径记录属于本机安装副本。
+
 Keep requirements, architecture, interfaces, task boundaries, and final acceptance in the GPT conversation. Choose one execution route per task:
 
 | Route | Executor | Handoff |
@@ -25,7 +29,7 @@ Read [references/task-protocol.md](references/task-protocol.md) for task states,
 3. Write a task specification based on [assets/task.example.json](assets/task.example.json): `title`, `goal`, `context_files`, `allowed_paths`, `constraints`, and `acceptance`. Use repository-relative paths. Scope rules are instructions and checks, not operating-system access controls. Send only task-relevant context; do not include credentials.
 4. Use `scripts/delegate.py --board <absolute-board-directory> create --route <desktop|api> --executor <name> --workspace <absolute-project-directory> --task <spec.json>`. For `api`, first initialize/verify the provider profile outside the implementation workspace, and add `--api-root <profile-root>` at creation. This binds the task to that absolute profile path and its public settings. Preserve the returned task ID and task folder.
 5. For `desktop`, present the generated `HANDOFF.txt` for the user to paste into the chosen app. Do not claim the task was sent, started, or completed merely because files exist. Authorize access only to the necessary board and project paths. If an app accepts one directory, select their common parent and keep the task's allowed paths narrow.
-6. For `api`, run `scripts/delegate.py --board <board> run-api --task-id <id> --api-root <profile-root>` using the exact profile bound at creation with unchanged public settings. This can send task text and model-selected project content to the configured provider and incur charges. Respect existing delegation authorization. Keep normal command session/polling support for progress; do not create a scheduled job or change the main Codex login, config, or model catalog.
+6. For `api`, first verify the native Windows executor without a model request as described in the API reference when setting up or changing that executor. Run `scripts/delegate.py --board <board> run-api --task-id <id> --api-root <profile-root>` using the exact profile bound at creation with unchanged public settings. This can send task text and model-selected project content to the configured provider and incur charges. Respect existing delegation authorization. Keep normal command session/polling support for progress; do not create a scheduled job or change the main Codex login, config, or model catalog.
 
 ## Collect and accept
 

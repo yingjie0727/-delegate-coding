@@ -197,6 +197,8 @@ def api_profile(root_value, workspace):
     settings = api_worker.validate_settings(read_json(root / "worker.json"))
     public = {key: settings[key] for key in
               ("base_url", "model", "context_window", "key_env", "provider_name")}
+    if "windows_sandbox" in settings:
+        public["windows_sandbox"] = settings["windows_sandbox"]
     digest = hashlib.sha256(json.dumps(public, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     return {"root": str(root), "settings": public, "settings_sha256": digest}
 
@@ -484,6 +486,7 @@ def run_api(board, args):
     if profile != task.get("api_profile"):
         raise ValueError("API profile or settings differ from the approved task; create a new task explicitly")
     api_root = Path(profile["root"])
+    api_worker.require_windows_sandbox(api_worker.validate_settings(read_json(api_root / "worker.json")))
     state = claim(board, args.task_id, task["executor"])
     output = job / "api-output"
     call_args = argparse.Namespace(workspace=task["workspace"], task=str(job / "spec.json"),

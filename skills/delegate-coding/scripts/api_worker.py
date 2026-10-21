@@ -25,6 +25,7 @@ SCHEMA_VERSION = 1
 SECRET_PATTERN = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL", re.I)
 DEFAULT_KEY_ENV = "DEEPSEEK_API_KEY"
 ACTIVE_ENV = "CODING_API_WORKER_ACTIVE"
+WINDOWS_SANDBOX_BACKENDS = ("mxc", "elevated", "unelevated")
 WORKER_INSTRUCTIONS = """You implement a bounded coding task planned by a supervising GPT agent.
 Read the supplied task and relevant repository instructions. Follow the specified
 architecture, interfaces, constraints, allowed paths, and acceptance criteria.
@@ -53,7 +54,7 @@ def default_root():
 
 
 def validate_settings(settings):
-    fields = {"schema_version", "base_url", "model", "context_window", "key_env", "provider_name"}
+    fields = {"schema_version", "base_url", "model", "context_window", "key_env", "provider_name", "windows_sandbox"}
     if not isinstance(settings, dict) or set(settings) - fields:
         raise ValueError("Invalid worker settings; use supported non-secret fields only")
     if type(settings.get("schema_version")) is not int or settings.get("schema_version") != SCHEMA_VERSION:
@@ -81,15 +82,28 @@ def validate_settings(settings):
     provider_name = settings.get("provider_name", "API implementation worker")
     if not isinstance(provider_name, str) or not provider_name.strip() or len(provider_name) > 120 or any(ord(c) < 32 for c in provider_name):
         raise ValueError("provider_name must be a nonempty display name without control characters")
+    if "windows_sandbox" in settings and settings["windows_sandbox"] not in WINDOWS_SANDBOX_BACKENDS:
+        raise ValueError("windows_sandbox must be explicitly set to mxc, elevated, or unelevated")
     return {**settings, "key_env": key_env, "provider_name": provider_name}
+
+
+def require_windows_sandbox(settings):
+    """Fail before a live run if this isolated Windows profile has no backend."""
+    if os.name == "nt" and "windows_sandbox" not in settings:
+        raise ValueError("Windows API 执行器尚未配置沙箱后端；请在独立 worker.json 中显式设置 "
+                         "windows_sandbox 为 mxc、elevated 或 unelevated，并先通过本机沙箱检查。"
+                         "不会读取主 Codex 配置或关闭沙箱。")
 
 
 def init(root, args):
     target = root / "worker.json"
-    settings = validate_settings({"schema_version": SCHEMA_VERSION, "base_url": args.base_url.rstrip("/"),
-                                  "model": args.model, "context_window": args.context_window,
-                                  "key_env": getattr(args, "key_env", DEFAULT_KEY_ENV),
-                                  "provider_name": getattr(args, "provider_name", "API implementation worker")})
+    values = {"schema_version": SCHEMA_VERSION, "base_url": args.base_url.rstrip("/"),
+              "model": args.model, "context_window": args.context_window,
+              "key_env": getattr(args, "key_env", DEFAULT_KEY_ENV),
+              "provider_name": getattr(args, "provider_name", "API implementation worker")}
+    if getattr(args, "windows_sandbox", None) is not None:
+        values["windows_sandbox"] = args.windows_sandbox
+    settings = validate_settings(values)
     root.mkdir(parents=True, exist_ok=True)
     # Exclusive creation preserves existing choices on repeated invocation.
     with target.open("x", encoding="utf-8") as f:
@@ -283,6 +297,8 @@ inherit = "all"
 ignore_default_excludes = false
 filters = {{ "*KEY*" = "exclude", "*TOKEN*" = "exclude", "*SECRET*" = "exclude", "*PASSWORD*" = "exclude", "*CREDENTIAL*" = "exclude", {q(settings['key_env'])} = "exclude" }}
 '''
+    if "windows_sandbox" in settings:
+        config += f'\n[windows]\nsandbox = {q(settings["windows_sandbox"])}\n'
     tomllib.loads(config)
     (home / "config.toml").write_text(config, encoding="utf-8")
 
@@ -296,6 +312,11 @@ def doctor(root, codex):
         checks["settings"] = {"ok": True, **settings}
     except (OSError, ValueError, KeyError):
         checks["settings"] = {"ok": False, "action": "Initialize or inspect worker.json"}
+    if os.name == "nt":
+        checks["windows_sandbox"] = {"ok": bool(settings and "windows_sandbox" in settings),
+            "action": "Explicitly configure windows_sandbox in this profile and verify the local sandbox before a live test"}
+        if checks["windows_sandbox"]["ok"]:
+            checks["windows_sandbox"]["backend"] = settings["windows_sandbox"]
     checks["git"] = {"ok": bool(shutil.which("git"))}
     try:
         checks["credential"] = {"ok": bool(get_key(root, settings))} if checks["settings"]["ok"] else {"ok": False}
@@ -303,7 +324,9 @@ def doctor(root, codex):
         checks["credential"] = {"ok": False, "action": "Reset the stored key for this Windows user"}
     try:
         command = resolve_codex(codex)
-        env = child_env(root / "diagnostic-home", "", settings["key_env"] if settings else DEFAULT_KEY_ENV)
+        # This profile-private home is also used by live runs so the selected
+        # Windows sandbox can keep its legitimately provisioned local state.
+        env = child_env(root / "codex-home", "", settings["key_env"] if settings else DEFAULT_KEY_ENV)
         # --version and --help are offline and do not create a model turn.
         version = subprocess.run(command + ["--version"], env=env, capture_output=True, timeout=15, check=True)
         help_result = subprocess.run(command + ["exec", "--help"], env=env, capture_output=True, timeout=15, check=True)
@@ -311,7 +334,7 @@ def doctor(root, codex):
         checks["codex"] = {"ok": all(x in help_text for x in ("--json", "--output-last-message", "--sandbox")),
                            "command": command, "version": version.stdout.decode("utf-8", errors="replace").strip()}
         if checks["settings"]["ok"]:
-            diagnostic_home = root / "diagnostic-home"
+            diagnostic_home = root / "codex-home"
             prepare_home(diagnostic_home, settings)
             catalog_result = subprocess.run(command + ["debug", "models"],
                 env=child_env(diagnostic_home, "", settings["key_env"]), capture_output=True, timeout=20, check=True)
@@ -474,6 +497,8 @@ def run(root, args):
     if os.environ.get(ACTIVE_ENV) == "1":
         raise ValueError("Recursive worker invocation is disabled")
     settings = validate_settings(load(root / "worker.json"))
+    if not args.dry_run:
+        require_windows_sandbox(settings)
     task = read_task(Path(args.task))
     workspace = Path(args.workspace).expanduser().resolve(strict=True)
     root = Path(root).expanduser().resolve()
@@ -508,7 +533,9 @@ def run(root, args):
         with os.fdopen(lock_fd, "w") as f:
             f.write(str(os.getpid()))
         output_dir.mkdir(parents=True, exist_ok=True)
-        home = output_dir / "codex-home"
+        # Never inherit the main Codex home or login state. Keep this profile's
+        # sandbox setup at a stable path, while each exec starts a fresh task.
+        home = root / "codex-home"
         prepare_home(home, settings)
         dump(output_dir / "task.json", task)
         prompt = (WORKER_INSTRUCTIONS + "\nTask specification:\n" + json.dumps(task, ensure_ascii=False) +
@@ -520,7 +547,8 @@ def run(root, args):
                           "-c", 'approval_policy="never"', "-c", "sandbox_workspace_write.network_access=false",
                           "--output-last-message", str(output_dir / "final.md"), "-"]
         dump(output_dir / "invocation.json", {"argv": argv, "workspace": str(workspace),
-             "base_commit": base, "model": settings["model"], "base_url": settings["base_url"], "dry_run": args.dry_run})
+             "base_commit": base, "model": settings["model"], "base_url": settings["base_url"],
+             "codex_home": str(home), "dry_run": args.dry_run})
         print("Worker artifacts: " + str(output_dir), flush=True)
         if args.dry_run:
             dump(output_dir / "result.json", {"status": "dry_run", "api_called": False})
@@ -569,6 +597,8 @@ def main(argv=None):
     p.add_argument("--context-window", type=int, default=128000)
     p.add_argument("--key-env", default=DEFAULT_KEY_ENV, help="Credential environment variable for this profile")
     p.add_argument("--provider-name", default="API implementation worker", help="Non-secret display name")
+    p.add_argument("--windows-sandbox", choices=WINDOWS_SANDBOX_BACKENDS,
+                   help="Explicit backend for this isolated Windows profile; does not provision or disable the sandbox")
     sub.add_parser("doctor", help="Offline prerequisites check; no model request")
     sub.add_parser("key-set", help="Hidden local input; Windows current-user DPAPI")
     sub.add_parser("key-delete", help="Delete stored credential only")

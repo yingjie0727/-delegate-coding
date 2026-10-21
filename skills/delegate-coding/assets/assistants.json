@@ -4,10 +4,10 @@
     "workbuddy": {
       "display_name": "腾讯 WorkBuddy 桌面助手",
       "transport": "shared-folder",
-      "verification": "file-roundtrip-confirmed",
+      "verification": "small-coding-task-accepted",
       "auto_dispatch": false,
       "handoff": "copy-paste-prompt",
-      "verification_scope": "本会话中，用户已让 WorkBuddy 读取测试 TASK.md 并写回结果文件；这只确认基础文件往返，不代表新任务协议、自动派发、原生接口或代码任务已验证。",
+      "verification_scope": "2026-10-16，开发机通过共享文件完成一次领取、编码、报告和 GPT 独立验收的小任务，8 项测试通过。仍需用户发送交接文字并通知 GPT；不代表自动派发或所有设备、任务已验证。",
       "setup_notes": "在 WorkBuddy 中打开任务指定的工作目录，复制派发文字并发送。只授予本次任务需要的目录访问权限。",
       "documentation": [
         {

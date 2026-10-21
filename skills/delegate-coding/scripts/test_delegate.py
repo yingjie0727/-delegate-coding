@@ -40,7 +40,8 @@ class DelegationTests(unittest.TestCase):
         self.profile.mkdir()
         d.write_json(self.profile / "worker.json", {"schema_version": 1,
             "base_url": "https://responses.example.invalid/v1", "model": "example-code",
-            "context_window": 128000, "key_env": "EXAMPLE_API_KEY", "provider_name": "Offline example"})
+            "context_window": 128000, "key_env": "EXAMPLE_API_KEY", "provider_name": "Offline example",
+            "windows_sandbox": "elevated"})
 
     def git(self, *args):
         return subprocess.run(["git", "-C", str(self.workspace), *args], check=True,
@@ -278,6 +279,25 @@ class DelegationTests(unittest.TestCase):
         self.assertFalse(result["result"]["accepted_by_gpt"])
         self.assertEqual(result["result"]["observations"]["actual_changed_files"], ["main.txt"])
         self.assertEqual(self.review(task)["state"], "accepted")
+
+    def test_api_windows_backend_is_bound_and_cannot_switch(self):
+        task = self.create(route="api", executor="example-api")
+        settings = d.read_json(self.profile / "worker.json")
+        settings["windows_sandbox"] = "mxc"
+        d.write_json(self.profile / "worker.json", settings)
+        with self.assertRaisesRegex(ValueError, "differ"):
+            self.run_api(task, self.fake_success)
+        self.assertEqual(d.task_state(Path(task["task_directory"]))[1]["state"], "queued")
+
+    @unittest.skipUnless(os.name == "nt", "Windows backend is required only on Windows")
+    def test_api_missing_backend_does_not_claim_task(self):
+        settings = d.read_json(self.profile / "worker.json")
+        settings.pop("windows_sandbox")
+        d.write_json(self.profile / "worker.json", settings)
+        task = self.create(route="api", executor="example-api")
+        with self.assertRaises(ValueError):
+            self.run_api(task, lambda *args: self.fail("Must not start a worker"))
+        self.assertEqual(d.task_state(Path(task["task_directory"]))[1]["state"], "queued")
 
     def test_api_exception_submits_failure_without_exposing_message(self):
         task = self.create(route="api", executor="example-api")

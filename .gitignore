@@ -3,12 +3,22 @@ __pycache__/
 .env
 .env.*
 *.dpapi
+*.log
 auth.json
 worker.json
+worker.*.json
 .codex/
+.aws/
 work/
+outputs/
 **/codex-home/
 **/diagnostic-home/
 **/jobs/
 **/runs/
 **/locks/
+**/api-output/
+**/executor-check/
+
+# Per-machine records are private; remove inline local path blocks before sharing SKILL.md.
+*.local.json
+*.local.md

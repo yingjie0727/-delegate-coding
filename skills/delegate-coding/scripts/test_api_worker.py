@@ -76,7 +76,8 @@ class WorkerTests(unittest.TestCase):
         self.root, self.repo = self.base / 'state', self.base / 'repo'
         self.root.mkdir()
         self.repo.mkdir()
-        self.settings = {'schema_version':1, 'base_url':'https://api.deepseek.com', 'model':'deepseek-flash', 'context_window':128000}
+        self.settings = {'schema_version':1, 'base_url':'https://api.deepseek.com', 'model':'deepseek-flash',
+                         'context_window':128000, 'windows_sandbox':'elevated'}
         w.dump(self.root / 'worker.json', self.settings)
         self.fake = self.base / 'fake.py'
         self.fake.write_text(FAKE, encoding='utf-8')
@@ -127,11 +128,16 @@ class WorkerTests(unittest.TestCase):
         env = w.load(out / 'env-check.json')
         self.assertFalse(env['openai_present'])
         self.assertFalse(env['parent_codex_present'])
-        self.assertEqual(env['home'], str(out / 'codex-home'))
+        self.assertEqual(env['home'], str(self.root / 'codex-home'))
+        self.assertEqual(w.load(out / 'invocation.json')['codex_home'], str(self.root / 'codex-home'))
         for name in ['final.md', 'events.jsonl', 'stderr.log', 'invocation.json', 'task.json']:
             self.assertNotIn(self.key, (out / name).read_text())
-        cfg = tomllib.loads((out / 'codex-home/config.toml').read_text())
+        cfg = tomllib.loads((self.root / 'codex-home/config.toml').read_text())
         self.assertEqual(cfg['model_provider'], 'api_worker')
+        self.assertEqual(cfg['windows']['sandbox'], 'elevated')
+        self.assertEqual(cfg['sandbox_mode'], 'workspace-write')
+        self.assertEqual(cfg['approval_policy'], 'never')
+        self.assertFalse(cfg['sandbox_workspace_write']['network_access'])
         self.assertFalse(cfg['agents']['enabled'])
         self.assertFalse(cfg['model_providers']['api_worker']['requires_openai_auth'])
         self.assertFalse(list((self.root / 'locks').glob('*.lock')))
@@ -187,12 +193,48 @@ class WorkerTests(unittest.TestCase):
                 w.validate_relative(name)
 
     def test_dry_run_needs_no_key_or_model_request(self):
+        settings = {k:v for k, v in self.settings.items() if k != 'windows_sandbox'}
+        w.dump(self.root / 'worker.json', settings)
         args = self.args('dry', dry_run=True)
         with patch.object(w, 'get_key', side_effect=AssertionError('Must not read key in dry-run')):
             self.assertEqual(self.invoke(args), 0)
         out = Path(args.output_dir)
         self.assertEqual(w.load(out / 'result.json')['status'], 'dry_run')
         self.assertFalse((out / 'final.md').exists())
+        cfg = tomllib.loads((self.root / 'codex-home/config.toml').read_text())
+        self.assertNotIn('windows', cfg)
+
+    def test_windows_live_run_needs_explicit_backend_before_task_or_credentials(self):
+        settings = {k:v for k, v in self.settings.items() if k != 'windows_sandbox'}
+        w.dump(self.root / 'worker.json', settings)
+        with patch.object(w.os, 'name', 'nt'), patch.object(w, 'get_key') as key_reader, \
+             patch.object(w, 'read_task') as task_reader, self.assertRaisesRegex(ValueError, 'windows_sandbox'):
+            w.run(self.root, self.args())
+        key_reader.assert_not_called()
+        task_reader.assert_not_called()
+        self.assertFalse((self.root / 'locks').exists())
+
+    def test_windows_backend_validation_and_config_are_explicit(self):
+        for backend in w.WINDOWS_SANDBOX_BACKENDS:
+            with self.subTest(backend=backend):
+                settings = w.validate_settings({**self.settings, 'windows_sandbox':backend})
+                target = self.base / ('home-' + backend)
+                w.prepare_home(target, settings)
+                cfg = tomllib.loads((target / 'config.toml').read_text())
+                self.assertEqual(cfg['windows']['sandbox'], backend)
+                self.assertEqual(cfg['sandbox_mode'], 'workspace-write')
+                self.assertEqual(cfg['approval_policy'], 'never')
+                self.assertFalse(cfg['sandbox_workspace_write']['network_access'])
+        for backend in (None, '', True, [], {}, 'disabled', self.key):
+            with self.subTest(backend_type=type(backend).__name__), self.assertRaises(ValueError) as caught:
+                w.validate_settings({**self.settings, 'windows_sandbox':backend})
+            self.assertNotIn(self.key, str(caught.exception))
+
+    def test_legacy_settings_do_not_gain_implicit_backend(self):
+        legacy = {k:v for k, v in self.settings.items() if k != 'windows_sandbox'}
+        self.assertNotIn('windows_sandbox', w.validate_settings(legacy))
+        with patch.object(w.os, 'name', 'posix'):
+            w.require_windows_sandbox(w.validate_settings(legacy))
 
     def test_credentials_never_go_into_catalog_or_config(self):
         target = self.base / 'home'
@@ -211,7 +253,7 @@ class WorkerTests(unittest.TestCase):
         with patch.dict(os.environ, {'VENDOR_ACCESS':self.key}):
             self.assertEqual(self.invoke(args), 0)
         out = Path(args.output_dir)
-        cfg = tomllib.loads((out / 'codex-home/config.toml').read_text())
+        cfg = tomllib.loads((self.root / 'codex-home/config.toml').read_text())
         self.assertEqual(cfg['model_providers']['api_worker']['env_key'], 'VENDOR_ACCESS')
         self.assertEqual(cfg['model_providers']['api_worker']['name'], 'Example Responses provider')
         self.assertEqual(cfg['shell_environment_policy']['filters']['VENDOR_ACCESS'], 'exclude')
@@ -220,7 +262,7 @@ class WorkerTests(unittest.TestCase):
         self.assertFalse(env['ds_present'])
         self.assertTrue(env['profile_key_present'])
         self.assertEqual(env['profile_key_env'], 'VENDOR_ACCESS')
-        self.assertEqual(w.load(out / 'codex-home/models.json')['models'][0]['slug'], 'example/code-model')
+        self.assertEqual(w.load(self.root / 'codex-home/models.json')['models'][0]['slug'], 'example/code-model')
         for name in ('final.md', 'stderr.log', 'events.jsonl', 'invocation.json'):
             self.assertNotIn(self.key, (out / name).read_text())
 
@@ -245,6 +287,13 @@ class WorkerTests(unittest.TestCase):
         settings = w.load(root / 'worker.json')
         self.assertEqual(settings['key_env'], 'VENDOR_ACCESS')
         self.assertEqual(settings['provider_name'], 'Example API')
+        self.assertNotIn('windows_sandbox', settings)
+
+    def test_init_cli_accepts_explicit_windows_backend(self):
+        root = self.base / 'sandbox-profile'
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(w.main(['--worker-root', str(root), 'init', '--windows-sandbox', 'elevated']), 0)
+        self.assertEqual(w.load(root / 'worker.json')['windows_sandbox'], 'elevated')
 
     def test_custom_profile_timeout_keeps_actual_status(self):
         w.dump(self.root / 'worker.json', {**self.settings, 'key_env':'VENDOR_ACCESS'})
@@ -307,6 +356,20 @@ class WorkerTests(unittest.TestCase):
             self.assertEqual(w.doctor(self.root, None), 0)
         report = json.loads(captured.getvalue())
         self.assertTrue(report['offline'])
+        self.assertTrue(report['checks']['catalog']['ok'])
+        self.assertNotIn(self.key, captured.getvalue())
+
+    def test_windows_doctor_missing_backend_is_not_ready(self):
+        settings = {k:v for k, v in self.settings.items() if k != 'windows_sandbox'}
+        w.dump(self.root / 'worker.json', settings)
+        captured = io.StringIO()
+        with patch.object(w.os, 'name', 'nt'), \
+             patch.object(w, 'resolve_codex', return_value=[sys.executable, str(self.fake)]), \
+             patch.dict(os.environ, {'DEEPSEEK_API_KEY':self.key}), contextlib.redirect_stdout(captured):
+            self.assertEqual(w.doctor(self.root, None), 2)
+        report = json.loads(captured.getvalue())
+        self.assertFalse(report['ready_for_live_test'])
+        self.assertFalse(report['checks']['windows_sandbox']['ok'])
         self.assertTrue(report['checks']['catalog']['ok'])
         self.assertNotIn(self.key, captured.getvalue())
 
