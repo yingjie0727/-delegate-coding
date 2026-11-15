@@ -61,4 +61,9 @@ python <script> --board <board> run-cli --task-id <id> [--dry-run] [--timeout 90
 
 ## 验证范围
 
-截至本版，CLI 路线的自动派发**只用离线假 CLI 验证过**：领取、实现、报告、未报告、超时、可执行文件绑定与越界改动检查都有测试覆盖。真实 CodeBuddy CLI 的参数（`-p`、`-y`、`--model`、`--max-turns`）来自其官方文档，但尚未在本机实际跑过一次完整任务。首次使用请先派发一个极小任务，确认 argv 与退出码符合预期。
+截至本版：离线假 CLI 覆盖了领取、实现、报告、未报告、超时、可执行文件绑定与越界检查。真实 CodeBuddy CLI（2.184.0）在 2026-11-15 做过一次派发验证，结果值得记住：
+
+- `--dry-run` 能解析出正确 argv，`-p` / `-y` / `--model` / `--max-turns` 与该版本 `--help` 一致。
+- 未登录时，CLI 打印 `Authentication required. Please use /login command to sign in`，却以**退出码 0** 结束，也没有提交报告。协议据此记为 `failed`，不会把它当成完成。
+
+**成功路径仍未验证**：需要真实登录后跑一次完整任务。这也说明为什么验收必须看报告和真实 diff，而不是退出码。首次使用请先派一个极小任务。
