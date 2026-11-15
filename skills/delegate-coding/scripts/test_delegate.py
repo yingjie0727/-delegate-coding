@@ -517,6 +517,28 @@ class DelegationTests(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(d.main(["--board", str(self.board), "status", "--task-id", task["task_id"], "--tail", "999"]), 2)
 
+    def test_plain_status_reads_as_a_short_report(self):
+        task = self.create(route="cli", executor="codebuddy", cli_path=str(self.fake_cli), model="fake-model")
+        self.configure_fake(task)
+        self.run_cli(task)
+        text = d.brief(d.status(self.board, task["task_id"]))
+        self.assertIn("完成了，等你验收", text)
+        self.assertIn("fake-model", text)
+        self.assertIn("main.txt", text)
+        self.assertIn("耗时", text)
+        self.assertNotIn("{", text)
+
+    def test_plain_status_is_available_at_the_cli_boundary(self):
+        task, report = self.ready()
+        d.submit(self.board, task["task_id"], report)
+        d.collect(self.board, task["task_id"])
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = d.main(["--board", str(self.board), "status", "--task-id", task["task_id"], "--plain"])
+        self.assertEqual(code, 0)
+        self.assertIn("任务", output.getvalue())
+        self.assertNotIn('"task_id"', output.getvalue())
+
     def test_windows_handoff_shell_quoting_preserves_literals(self):
         if os.name != "nt":
             self.skipTest("PowerShell argument roundtrip is Windows-specific")

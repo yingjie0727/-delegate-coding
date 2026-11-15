@@ -57,10 +57,12 @@ python <script> --board <board> run-cli --task-id <id> [--dry-run] [--timeout 90
 `run-cli` 会阻塞到任务结束，但进度不必守着终端看，任务板本身记着完整过程：
 
 ```text
-python <script> --board <board> status --task-id <id> [--tail 20]
+python <script> --board <board> status --task-id <id> --plain
 ```
 
-返回当前状态、领取时间、绑定执行器、`cli-run.json` 摘要（退出码、是否超时）以及 `cli-output/` 最后 N 行输出；能解析为 JSON 的事件会带上 `type` / `tool`。状态含义：`queued` 还没被领取 → `claimed` 执行中 → `ready_for_review` 等验收。`status` 只读，可以长时间在另一个终端反复调用。
+`--plain` 输出给人看的几行：状态、执行器与模型、创建/领取/完成/验收时间、耗时、产物、自检通过数、进程退出码、复核结论。去掉 `--plain` 返回 JSON，供脚本或看板使用。两种都只读，可以随时反复调用。
+
+状态含义：`queued` 还没人领取 → `claimed` 执行中 → `ready_for_review` 等验收 → `accepted` / `rejected`。
 
 ## 安全边界
 

@@ -699,14 +699,68 @@ def status(board, task_id, tail=12):
                 recent.append(item)
     return {"task_id": task_id, "route": task["route"], "executor": task["executor"],
         "state": state["state"], "created_at": task.get("created_at"), "updated_at": state.get("updated_at"),
-        "claimed_at": state.get("claimed_at"), "claimed": bool(state.get("claim_token")),
+        "claimed_at": state.get("claimed_at"), "reported_at": state.get("reported_at"),
+        "reviewed_at": state.get("reviewed_at"), "claimed": bool(state.get("claim_token")),
         "workspace": task["workspace"], "allowed_paths": task["allowed_paths"],
         "cli": task.get("cli"), "cli_run": run, "review": review,
         "worker_report": None if report is None else {
             "status": report.get("status"), "summary": report.get("summary"),
-            "changed_files": report.get("changed_files"), "issues": report.get("issues")},
+            "changed_files": report.get("changed_files"), "issues": report.get("issues"),
+            "checks_total": len(report.get("checks") or []),
+            "checks_passed": sum(1 for c in report.get("checks") or [] if c.get("outcome") == "passed")},
         "recent_output": recent,
         "hint": "queued: not claimed yet | claimed: worker is running | ready_for_review: collect and review it"}
+
+
+STATE_LABELS = {"queued": "还没人领取", "claimed": "执行中", "ready_for_review": "完成了，等你验收",
+    "blocked": "执行器说被卡住了", "failed": "失败了", "accepted": "已验收通过",
+    "rejected": "已退回", "cancelled": "已取消", "cancel_requested": "已请求取消，等执行器停"}
+
+
+def clock(value):
+    try:
+        return datetime.fromisoformat(value).astimezone().strftime("%H:%M:%S")
+    except (TypeError, ValueError):
+        return None
+
+
+def elapsed(first, last):
+    try:
+        return int((datetime.fromisoformat(last) - datetime.fromisoformat(first)).total_seconds())
+    except (TypeError, ValueError):
+        return None
+
+
+def brief(value):
+    """One screens worth of plain text; the JSON output stays available for tools."""
+    lines = [f"任务    {value['task_id']}"]
+    binding = value.get("cli") or {}
+    executor = value["executor"] + (f" / {binding['model']}" if binding.get("model") else "")
+    lines.append(f"执行器  {executor}")
+    lines.append(f"状态    {STATE_LABELS.get(value['state'], value['state'])}")
+    marks = [(label, clock(value.get(key))) for label, key in
+             (("创建", "created_at"), ("领取", "claimed_at"), ("完成", "reported_at"), ("验收", "reviewed_at"))]
+    stamps = [f"{label} {moment}" for label, moment in marks if moment]
+    if stamps:
+        lines.append("时间    " + " → ".join(stamps))
+    seconds = elapsed(value.get("created_at"), value.get("reported_at") or value.get("reviewed_at"))
+    if seconds is not None:
+        lines.append(f"耗时    {seconds // 60} 分 {seconds % 60} 秒")
+    report = value.get("worker_report")
+    if report:
+        files = "、".join(report.get("changed_files") or []) or "（报告没写）"
+        lines.append(f"产物    {files}")
+        if report.get("checks_total"):
+            lines.append(f"自检    {report['checks_total']} 项，通过 {report['checks_passed']}")
+        if report.get("issues"):
+            lines.append("问题    " + "；".join(report["issues"])[:300])
+    run = value.get("cli_run")
+    if run:
+        lines.append(f"进程    退出码 {run.get('exit_code')}" + ("，超时被终止" if run.get("timed_out") else ""))
+    if value.get("review"):
+        lines.append(f"结论    {value['review'].get('decision')}：{value['review'].get('note', '')[:200]}")
+    return "\n".join(lines)
+
 
 
 def main(argv=None):
@@ -751,6 +805,7 @@ def main(argv=None):
             p.add_argument("--dry-run", action="store_true")
         elif name == "status":
             p.add_argument("--tail", type=int, default=12, help="How many recent output lines to include (0-200)")
+            p.add_argument("--plain", action="store_true", help="Print a short human-readable summary instead of JSON")
     args = parser.parse_args(argv)
     board = args.board.expanduser().resolve()
     try:
@@ -806,6 +861,9 @@ def main(argv=None):
                         result = state
                         break
                     time.sleep(0.5)
+        if args.command == "status" and getattr(args, "plain", False):
+            print(brief(result), flush=True)
+            return 0
         print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
         return result.get("worker_exit_status", 0) if args.command in ("run-api", "run-cli") else 0
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
