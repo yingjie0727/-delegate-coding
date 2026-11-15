@@ -1,6 +1,6 @@
 # Shared task protocol
 
-This protocol separates GPT's planning and acceptance from the executor's implementation. Both desktop and API tasks use the same board records. The API worker has its own execution and credential setup in [api-route.md](api-route.md); desktop registration and actual app support are described in [desktop-route.md](desktop-route.md).
+This protocol separates GPT's planning and acceptance from the executor's implementation. Desktop, CLI and API tasks share the same board records. The API worker has its own execution and credential setup in [api-route.md](api-route.md); desktop registration and actual app support are described in [desktop-route.md](desktop-route.md); automatic CLI dispatch is described in [cli-route.md](cli-route.md).
 
 ## Paths and prerequisites
 
@@ -31,10 +31,11 @@ Create a task JSON using [../assets/task.example.json](../assets/task.example.js
 ```text
 python <script> --board <board> create --route desktop --executor workbuddy --workspace <clean-project> --task <spec.json>
 python <script> --board <board> create --route desktop --executor zcode --workspace <clean-project> --task <spec.json>
+python <script> --board <board> create --route cli --executor codebuddy --cli-path <verified-executable> --workspace <clean-project> --task <spec.json>
 python <script> --board <board> create --route api --executor deepseek-official --api-root <profile-root> --workspace <clean-project> --task <spec.json>
 ```
 
-These are alternatives, not three commands to run on the same workspace. Before creating an API task, initialize and verify its provider profile as described in [api-route.md](api-route.md). The API profile root must be outside the implementation workspace. `create --route api` requires `--api-root` and binds the task to its absolute profile path and public-settings fingerprint. A desktop task does not need an API profile. `create` adds protocol metadata such as schema version, task ID, route, executor, workspace, and creation time. Save the printed ID; use it in later commands.
+These are alternatives, not four commands to run on the same workspace. Before creating an API task, initialize and verify its provider profile as described in [api-route.md](api-route.md). The API profile root must be outside the implementation workspace. `create --route api` requires `--api-root` and binds the task to its absolute profile path and public-settings fingerprint. A desktop task does not need an API profile, and a CLI task binds an executable path (and optional model) instead. `create` adds protocol metadata such as schema version, task ID, route, executor, workspace, and creation time. Save the printed ID; use it in later commands.
 
 The generated task folder includes:
 
@@ -43,7 +44,7 @@ The generated task folder includes:
 | `task.json` | Canonical task and routing metadata |
 | `TASK.md` | Human-readable implementation instructions |
 | `HANDOFF.txt` | Text for the user to paste into the desktop app |
-| `controller.py` | Desktop-only local copy for claiming/reporting; no access to the personal Codex configuration directory is required |
+| `controller.py` | Desktop/CLI local copy for claiming/reporting; no access to the personal Codex configuration directory is required |
 | `state.json` | Current lifecycle state and claim |
 | `worker-report.json` | Executor-prepared report submitted with `report` |
 | `RESULT.json` | Validated report saved by the protocol script |
@@ -52,7 +53,7 @@ Do not hand-edit routing metadata or state to bypass lifecycle checks. `create` 
 
 ## Claim, execute, and report
 
-For a desktop task, the user sends `HANDOFF.txt` to the selected app. That app reads `TASK.md`, relevant project instructions and files, then claims the task before editing:
+For a desktop task, the user sends `HANDOFF.txt` to the selected app. For a CLI task, `run-cli` starts the bound executable with the same handoff text. In both cases the executor reads `TASK.md`, relevant project instructions and files, then claims the task before editing:
 
 ```text
 python <script> --board <board> claim --task-id <id> --executor <registered-name>
@@ -94,6 +95,15 @@ An API task is claimed and reported by the runner:
 python <script> --board <board> run-api --task-id <id> --api-root <profile-root> --timeout 900
 ```
 
+A CLI task is claimed and reported by the executor process that `run-cli` starts; the script waits for it and records the run:
+
+```text
+python <script> --board <board> run-cli --task-id <id> --dry-run
+python <script> --board <board> run-cli --task-id <id> --timeout 900
+```
+
+`run-cli` refuses a different executable than the one bound at creation. A timeout terminates the process tree and records a failure; it does not roll back edits.
+
 The `--api-root` must match the profile bound at task creation, and its public settings must remain unchanged. To use another provider, model, or profile, create a new task deliberately after resolving the current task. Optional `--codex <executable>` selects a known local CLI. The route stays `api` even if an app with the same provider name is installed. Configuration and key handling belong to `api_worker.py`; see [api-route.md](api-route.md).
 
 ## GPT collection and review
@@ -126,4 +136,4 @@ Rejecting a still-claimed task also requires `--worker-stopped`. Do not assert t
 
 ## Compatibility claims
 
-On 2026-10-16, WorkBuddy completed one small coding task through the shared-file claim/report/review protocol; GPT independently passed all 8 acceptance tests. DeepSeek official API (`deepseek-flash`) also completed a separate real coding task with tool execution, followed by 8 independently passed tests and formal acceptance. The API trial was launched from the user's local terminal; direct unattended initiation from the supervising Codex sandbox remains unverified. ZCode still needs a local task trial. These trials do not establish arbitrary provider, device, long-context, or complex-task compatibility. Upgrade a desktop adapter to automatic dispatch only after its native CLI/API and authorization have been independently tested.
+On 2026-10-16, WorkBuddy completed one small coding task through the shared-file claim/report/review protocol; GPT independently passed all 8 acceptance tests. DeepSeek official API (`deepseek-flash`) also completed a separate real coding task with tool execution, followed by 8 independently passed tests and formal acceptance. The API trial was launched from the user's local terminal; direct unattended initiation from the supervising Codex sandbox remains unverified. ZCode still needs a local task trial. Automatic CLI dispatch was exercised only against an offline fake CLI covering claim, report, missing report, timeout and executable binding; it has not yet run a real CodeBuddy CLI task on this machine, so its flags remain documented rather than proven. These trials do not establish arbitrary provider, device, long-context, or complex-task compatibility. Upgrade a desktop adapter to automatic dispatch only after its native CLI/API and authorization have been independently tested.

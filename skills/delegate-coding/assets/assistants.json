@@ -48,6 +48,25 @@
       "verification_scope": "通用占位适配器。只有能读取任务指定目录并将结构化结果写回的助手才适用；每种助手都需要先做文件往返测试。",
       "setup_notes": "将派发文字复制到所选助手，允许访问工作目录与任务目录。若它只能回复聊天而不能写文件，不要认定此适配器已通过。",
       "documentation": []
+    },
+    "codebuddy": {
+      "display_name": "CodeBuddy CLI（WorkBuddy 引擎）",
+      "transport": "cli",
+      "verification": "pending-local-cli-test",
+      "auto_dispatch": true,
+      "handoff": "cli-prompt",
+      "verification_scope": "自动派发实现只经过离线假 CLI 测试：领取、实现、报告、超时与失败路径均覆盖，但没有在本机真实 CodeBuddy CLI 上跑过任务。不同版本的参数可能需要调整。",
+      "setup_notes": "npm install -g @tencent-ai/codebuddy-code，先交互式登录一次。创建任务时用 --cli-path 绑定已验证的可执行文件；路径会固定进任务，之后不能更换。",
+      "documentation": [
+        {
+          "title": "CodeBuddy CLI 无头模式",
+          "url": "https://www.codebuddy.ai/docs/zh/cli/headless"
+        },
+        {
+          "title": "CodeBuddy CLI 安装指南",
+          "url": "https://www.codebuddy.ai/docs/zh/cli/installation"
+        }
+      ]
     }
   }
 }
