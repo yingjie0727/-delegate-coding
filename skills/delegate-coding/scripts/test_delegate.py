@@ -488,6 +488,35 @@ class DelegationTests(unittest.TestCase):
             code = d.main(["--board", str(self.board), "run-cli", "--task-id", "task-offline"])
         self.assertEqual(code, 124)
 
+    def test_status_is_read_only_and_follows_the_lifecycle(self):
+        task = self.create(route="cli", executor="codebuddy", cli_path=str(self.fake_cli))
+        queued = d.status(self.board, task["task_id"])
+        self.assertEqual(queued["state"], "queued")
+        self.assertFalse(queued["claimed"])
+        self.assertIsNone(queued["worker_report"])
+        self.assertEqual(d.task_state(Path(task["task_directory"]))[1]["state"], "queued")
+        self.configure_fake(task)
+        self.run_cli(task)
+        done = d.status(self.board, task["task_id"])
+        self.assertEqual(done["state"], "ready_for_review")
+        self.assertTrue(done["claimed"])
+        self.assertEqual(done["cli_run"]["exit_code"], 0)
+        self.assertEqual(done["worker_report"]["status"], "completed")
+
+    def test_status_shows_failure_details_after_an_empty_run(self):
+        task = self.create(route="cli", executor="codebuddy", cli_path=str(self.fake_cli))
+        self.configure_fake(task, silent=True)
+        self.run_cli(task)
+        snapshot = d.status(self.board, task["task_id"])
+        self.assertEqual(snapshot["state"], "failed")
+        self.assertEqual(snapshot["worker_report"]["status"], "failed")
+        self.assertTrue(snapshot["worker_report"]["issues"])
+
+    def test_status_tail_is_bounded_at_the_cli_boundary(self):
+        task = self.create()
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(d.main(["--board", str(self.board), "status", "--task-id", task["task_id"], "--tail", "999"]), 2)
+
     def test_windows_handoff_shell_quoting_preserves_literals(self):
         if os.name != "nt":
             self.skipTest("PowerShell argument roundtrip is Windows-specific")

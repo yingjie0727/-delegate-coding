@@ -64,6 +64,9 @@ python <skill>\scripts\delegate.py --board <board> create --route cli --executor
 python <skill>\scripts\delegate.py --board <board> run-cli --task-id <task-id> --dry-run
 python <skill>\scripts\delegate.py --board <board> run-cli --task-id <task-id> --timeout 900
 
+# 2.5 另开终端看进度（只读）：queued → claimed → ready_for_review
+python <skill>\scripts\delegate.py --board <board> status --task-id <task-id> --tail 20
+
 # 3. 收集证据
 python <skill>\scripts\delegate.py --board <board> collect --task-id <task-id>
 
@@ -90,4 +93,4 @@ python <skill>\scripts\delegate.py --board <board> review --task-id <task-id> --
 
 ## 验证范围
 
-本版随仓库的离线测试（89 项）覆盖任务板、领取、报告、越界检测、CLI 自动派发、超时终止和执行器绑定。**真实 CodeBuddy CLI 尚未在本机跑过一次完整任务**：`-p`、`-y`、`--model`、`--max-turns` 来自其官方文档，首次使用时先跑一个极小任务确认参数与退出码，再交给它真活。
+本版随仓库的离线测试（92 项）覆盖任务板、领取、报告、越界检测、CLI 自动派发、超时终止和执行器绑定。**真实 CodeBuddy CLI 尚未在本机跑过一次完整任务**：`-p`、`-y`、`--model`、`--max-turns` 来自其官方文档，首次使用时先跑一个极小任务确认参数与退出码，再交给它真活。

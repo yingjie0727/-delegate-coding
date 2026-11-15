@@ -52,6 +52,16 @@ python <script> --board <board> run-cli --task-id <id> [--dry-run] [--timeout 90
 
 退出码为 `0` **不代表验收通过**。它只表示执行器提交了报告，`review` 仍由大脑决定。
 
+## 看进度
+
+`run-cli` 会阻塞到任务结束，但进度不必守着终端看，任务板本身记着完整过程：
+
+```text
+python <script> --board <board> status --task-id <id> [--tail 20]
+```
+
+返回当前状态、领取时间、绑定执行器、`cli-run.json` 摘要（退出码、是否超时）以及 `cli-output/` 最后 N 行输出；能解析为 JSON 的事件会带上 `type` / `tool`。状态含义：`queued` 还没被领取 → `claimed` 执行中 → `ready_for_review` 等验收。`status` 只读，可以长时间在另一个终端反复调用。
+
 ## 安全边界
 
 - `-y` 让 CLI 跳过交互确认，因此它能做的操作等同于当前用户在该工作区能做的事。`allowed_paths` 是任务约束与事后检查，**不是文件系统沙箱**。

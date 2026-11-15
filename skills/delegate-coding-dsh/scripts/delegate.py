@@ -671,6 +671,44 @@ def run_cli(board, args):
             "timed_out": timed_out, "result": collect(board, args.task_id)}
 
 
+def status(board, task_id, tail=12):
+    """Read-only progress snapshot: lifecycle state, bound executor, run summary and recent worker output."""
+    job = job_dir(board, task_id)
+    task, state = task_state(job)
+    report_path, review_path, run_path = job / "RESULT.json", job / "review.json", job / "cli-run.json"
+    report = read_json(report_path) if report_path.exists() else None
+    review = read_json(review_path) if review_path.exists() else None
+    run = read_json(run_path) if run_path.exists() else None
+    recent = []
+    if tail:
+        for name in ("stdout.log", "stderr.log"):
+            path = job / "cli-output" / name
+            if not path.is_file():
+                continue
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()[-tail:]
+            for line in lines:
+                item = {"stream": name.split(".")[0], "line": line[:400]}
+                try:
+                    value = json.loads(line)
+                except ValueError:
+                    value = None
+                if isinstance(value, dict):
+                    for key in ("type", "event", "subtype", "name", "tool", "message"):
+                        if isinstance(value.get(key), str):
+                            item[key] = value[key][:200]
+                recent.append(item)
+    return {"task_id": task_id, "route": task["route"], "executor": task["executor"],
+        "state": state["state"], "created_at": task.get("created_at"), "updated_at": state.get("updated_at"),
+        "claimed_at": state.get("claimed_at"), "claimed": bool(state.get("claim_token")),
+        "workspace": task["workspace"], "allowed_paths": task["allowed_paths"],
+        "cli": task.get("cli"), "cli_run": run, "review": review,
+        "worker_report": None if report is None else {
+            "status": report.get("status"), "summary": report.get("summary"),
+            "changed_files": report.get("changed_files"), "issues": report.get("issues")},
+        "recent_output": recent,
+        "hint": "queued: not claimed yet | claimed: worker is running | ready_for_review: collect and review it"}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--board", type=Path, required=True, help="Task board outside implementation workspaces")
@@ -689,7 +727,7 @@ def main(argv=None):
     p.add_argument("--cli-path", help="CLI tasks: bind this verified CodeBuddy CLI executable instead of PATH lookup")
     p.add_argument("--model", help="CLI tasks: bind the model id passed to the CLI; omit for the CLI default")
     p.add_argument("--allow-no-git", action="store_true")
-    for name in ("claim", "report", "collect", "review", "cancel", "wait", "run-api", "run-cli"):
+    for name in ("claim", "report", "collect", "review", "cancel", "wait", "run-api", "run-cli", "status"):
         p = sub.add_parser(name)
         p.add_argument("--task-id", required=True)
         if name == "claim":
@@ -711,6 +749,8 @@ def main(argv=None):
             p.add_argument("--timeout", type=int, default=900)
             p.add_argument("--max-turns", type=int, default=0)
             p.add_argument("--dry-run", action="store_true")
+        elif name == "status":
+            p.add_argument("--tail", type=int, default=12, help="How many recent output lines to include (0-200)")
     args = parser.parse_args(argv)
     board = args.board.expanduser().resolve()
     try:
@@ -752,6 +792,10 @@ def main(argv=None):
                 if args.timeout <= 0 or args.max_turns < 0:
                     raise ValueError("Timeout must be positive and max-turns cannot be negative")
                 result = run_cli(board, args)
+            elif args.command == "status":
+                if not 0 <= args.tail <= 200:
+                    raise ValueError("Tail must be between 0 and 200 lines")
+                result = status(board, args.task_id, args.tail)
             else:
                 if not 1 <= args.seconds <= 60:
                     raise ValueError("Wait must be between 1 and 60 seconds")
