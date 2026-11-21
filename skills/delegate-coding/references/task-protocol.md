@@ -1,6 +1,6 @@
 # Shared task protocol
 
-This protocol separates GPT's planning and acceptance from the executor's implementation. Both desktop and API tasks use the same board records. The API worker has its own execution and credential setup in [api-route.md](api-route.md); desktop registration and actual app support are described in [desktop-route.md](desktop-route.md).
+Desktop, API, and CLI tasks share the same task board and acceptance records. Find the setup for each executor in the [desktop route](desktop-route.md), [API route](api-route.md), and [CLI route](cli-route.md).
 
 ## Paths and prerequisites
 
@@ -32,9 +32,10 @@ Create a task JSON using [../assets/task.example.json](../assets/task.example.js
 python <script> --board <board> create --route desktop --executor workbuddy --workspace <clean-project> --task <spec.json>
 python <script> --board <board> create --route desktop --executor zcode --workspace <clean-project> --task <spec.json>
 python <script> --board <board> create --route api --executor deepseek-official --api-root <profile-root> --workspace <clean-project> --task <spec.json>
+python <script> --board <board> create --route cli --executor codebuddy --workspace <clean-project> --task <spec.json>
 ```
 
-These are alternatives, not three commands to run on the same workspace. Before creating an API task, initialize and verify its provider profile as described in [api-route.md](api-route.md). The API profile root must be outside the implementation workspace. `create --route api` requires `--api-root` and binds the task to its absolute profile path and public-settings fingerprint. A desktop task does not need an API profile. `create` adds protocol metadata such as schema version, task ID, route, executor, workspace, and creation time. Save the printed ID; use it in later commands.
+Choose one route and executor. API tasks bind their provider profile at creation. CLI tasks bind their executable and optional model and require a clean Git checkout. Save the task ID printed by `create` for later commands.
 
 The generated task folder includes:
 
@@ -47,12 +48,14 @@ The generated task folder includes:
 | `state.json` | Current lifecycle state and claim |
 | `worker-report.json` | Executor-prepared report submitted with `report` |
 | `RESULT.json` | Validated report saved by the protocol script |
+| `DELIVERY.json` | Optional record of desktop send attempts and observed receipts |
+| `cli-run.json` | CLI version, exit status, and run summary |
 
 Do not hand-edit routing metadata or state to bypass lifecycle checks. `create` is preparation; it does not send a desktop message or start the implementation.
 
 ## Claim, execute, and report
 
-For a desktop task, the user sends `HANDOFF.txt` to the selected app. That app reads `TASK.md`, relevant project instructions and files, then claims the task before editing:
+For a desktop task, send `HANDOFF.txt` to the selected app. Follow [the WorkBuddy delivery procedure](desktop-control.md) when using desktop automation. The app reads `TASK.md` and claims its task before editing:
 
 ```text
 python <script> --board <board> claim --task-id <id> --executor <registered-name>
@@ -95,6 +98,8 @@ python <script> --board <board> run-api --task-id <id> --api-root <profile-root>
 ```
 
 The `--api-root` must match the profile bound at task creation, and its public settings must remain unchanged. To use another provider, model, or profile, create a new task deliberately after resolving the current task. Optional `--codex <executable>` selects a known local CLI. The route stays `api` even if an app with the same provider name is installed. Configuration and key handling belong to `api_worker.py`; see [api-route.md](api-route.md).
+
+For a CLI task, `run-cli --task-id <id>` claims the task before starting CodeBuddy. The controller validates the CLI report, compares reported files against the actual changes, and submits the result to the same board. See [cli-route.md](cli-route.md) for the full dispatch and review sequence.
 
 ## GPT collection and review
 

@@ -1,4 +1,4 @@
 interface:
   display_name: "大脑控制小脑"
-  short_description: "GPT 负责规划和验收，桌面助手或 API 模型负责具体实现。"
-  default_prompt: "使用 $delegate-coding（大脑控制小脑），由你负责规划和验收，通过我选择的桌面助手或独立 API 执行明确的实现任务。"
+  short_description: "GPT 规划和验收，通过桌面助手、API 或 CodeBuddy CLI 交接实现。"
+  default_prompt: "使用 $delegate-coding（大脑控制小脑），由你规划和验收，按我选定的桌面、API 或 CodeBuddy CLI 路线派发任务。"

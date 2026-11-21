@@ -4,11 +4,11 @@
     "workbuddy": {
       "display_name": "腾讯 WorkBuddy 桌面助手",
       "transport": "shared-folder",
-      "verification": "small-coding-task-accepted",
+      "verification": "desktop-control-file-roundtrip-accepted",
       "auto_dispatch": false,
       "handoff": "copy-paste-prompt",
-      "verification_scope": "2026-10-16，开发机通过共享文件完成一次领取、编码、报告和 GPT 独立验收的小任务，8 项测试通过。仍需用户发送交接文字并通知 GPT；不代表自动派发或所有设备、任务已验证。",
-      "setup_notes": "在 WorkBuddy 中打开任务指定的工作目录，复制派发文字并发送。只授予本次任务需要的目录访问权限。",
+      "verification_scope": "2026-10-16 人工交接的编码小任务通过。2026-11-21 通过桌面操作完成发送、领取、文件回传和 GPT 验收。",
+      "setup_notes": "通过已授权的桌面操作工具发送，使用 desktop_bridge.py 记录投递及回执。也可按用户选择手动交接。",
       "documentation": [
         {
           "title": "WorkBuddy 官方文档：右侧边栏",
@@ -48,6 +48,25 @@
       "verification_scope": "通用占位适配器。只有能读取任务指定目录并将结构化结果写回的助手才适用；每种助手都需要先做文件往返测试。",
       "setup_notes": "将派发文字复制到所选助手，允许访问工作目录与任务目录。若它只能回复聊天而不能写文件，不要认定此适配器已通过。",
       "documentation": []
+    },
+    "codebuddy": {
+      "display_name": "腾讯 CodeBuddy Code CLI",
+      "transport": "cli",
+      "verification": "cli-file-roundtrip-accepted",
+      "auto_dispatch": true,
+      "handoff": "cli-prompt",
+      "verification_scope": "2026-11-21 使用 CodeBuddy CLI 2.185.0 在独立 Git 工作区完成文件原样回传、结构化报告和 GPT 验收。",
+      "setup_notes": "核对本机 codebuddy --version 和登录状态，创建 cli 任务时绑定可执行文件，运行 run-cli 派发。",
+      "documentation": [
+        {
+          "title": "CodeBuddy CLI 无头模式",
+          "url": "https://www.codebuddy.cn/docs/cli/headless"
+        },
+        {
+          "title": "CodeBuddy CLI 参考",
+          "url": "https://www.codebuddy.cn/docs/cli/reference"
+        }
+      ]
     }
   }
 }

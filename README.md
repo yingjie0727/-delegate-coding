@@ -4,16 +4,17 @@
 
 显示名称：**大脑控制小脑**。内部调用名：`$delegate-coding`。
 
-上传版本更新于 2026-10-21；真实小任务验证日期为 2026-10-16。
+更新于 2026-11-21。
 
-## 两条路线
+## 三条路线
 
 | 路线 | 执行器 | 使用方式 |
 | --- | --- | --- |
-| 桌面助手 | WorkBuddy、ZCode，以及其他能按协议读写本地文件的助手 | GPT 生成交接文字，用户粘贴发送；助手实现并写回报告，GPT 验收 |
+| 桌面助手 | WorkBuddy、ZCode 等 | WorkBuddy 可通过已授权的桌面操作发送。使用共享任务文件交接，GPT 验收 |
 | API | 已配置的 Responses API 模型，本机已测试 DeepSeek 官方 `deepseek-flash` | 独立 Codex CLI 执行器调用模型，收集改动，GPT 独立检查 |
+| CLI | 腾讯 CodeBuddy Code（`codebuddy` 或 `cbc`） | 从干净的 Git 工作区启动无头 CLI，收集结果并核对实际改动 |
 
-Skill 不修改主 Codex 登录态或模型菜单。两条路线使用相同任务协议；登记助手模板不等于自动接通桌面软件。
+三条路线共用任务板、范围约束和验收。每项任务固定使用选定的执行器。
 
 ## 安装
 
@@ -23,7 +24,7 @@ Skill 不修改主 Codex 登录态或模型菜单。两条路线使用相同任�
 
 也可以下载仓库，把整个 `skills/delegate-coding` 文件夹复制到自己的 Codex 技能目录。Windows 通常是 `%USERPROFILE%\.codex\skills`；设置了 `CODEX_HOME` 时使用其下的 `skills`。已有同名目录时先比较，勿直接覆盖。
 
-需要 Python 3.11+ 和 Git。API 路线另需 Codex CLI、自己的厂商 API 密钥与可用额度。Windows 首次调用模型前需要显式配置本机沙箱实现，并通过不调用 API 的执行环境检查；由 GPT 协助操作即可。
+需要 Python 3.11+ 和 Git。API 路线另需 Codex CLI 和已配置的厂商 API。CLI 路线需在同一运行环境中可以启动并使用已登录的 CodeBuddy Code。
 
 ## 首次配置后记住路径
 
@@ -41,16 +42,18 @@ API 路线示例：
 
 > 使用 $delegate-coding，走 DeepSeek 官方 API 路线。先检查独立配置和本机执行环境，再做一个小任务验证。密钥只在本机输入，不要让我发到聊天。我的需求是……
 
+CLI 路线示例：
+
+> 使用 $delegate-coding，走 CodeBuddy CLI 路线。请先核对 CLI 版本，再派一个能独立验收的小任务。
+
 ## 已验证到哪一步
 
-2026-10-16 的开发机实测：
+- **WorkBuddy 桌面操作**于 2026-11-21 完成发送、领取、原样回写和 GPT 验收。测试使用了 WorkBuddy 5.11.3 和独立的本地文件任务。
+- **CodeBuddy CLI 2.185.0** 于 2026-11-21 通过非交互派发、文件原样回传、结构化报告和 Git 验收。
+- **DeepSeek 官方 API** 于 2026-10-16 从本机入口完成真实模型响应、命令工具、文件修改和报告，GPT 独立运行 8 项测试通过。
+- **ZCode** 已有共享文件交接模板，本机任务待验证。
 
-- WorkBuddy：一次完整的领取、实现、报告、GPT 验收小任务通过，8 项测试通过；仍由用户复制发送交接文字。
-- DeepSeek 官方 API：真实模型响应、命令工具、文件修改和正式报告均完成，GPT 独立运行 8 项测试通过；本机执行环境的项目内读写与项目外写入拒绝检查通过。
-- API 实测由用户启动本机入口，随后自动执行，GPT 验收。当前隔离会话直接全自动发起尚未验证。
-- ZCode：已有共享文件模板，尚未完成本机任务实测。Aider、MCP 自动派发和原生跨厂商子代理尚未集成。
-
-这些结果验证了两个小任务，不代表所有设备、模型、长上下文或复杂项目都已验证。
+[验证记录](docs/验证记录.md)记载了各次实测的范围和故障原因。
 
 ## 文档
 
@@ -58,7 +61,9 @@ API 路线示例：
 - [验证记录与限制](docs/验证记录.md)
 - [共享任务协议](skills/delegate-coding/references/task-protocol.md)
 - [桌面路线](skills/delegate-coding/references/desktop-route.md)
+- [WorkBuddy 桌面操作与回执](skills/delegate-coding/references/desktop-control.md)
 - [API 配置与执行环境检查](skills/delegate-coding/references/api-route.md)
+- [CodeBuddy CLI 第三条路线](skills/delegate-coding/references/cli-route.md)
 - [运行路径配置与复用](skills/delegate-coding/references/runtime-paths.md)
 
 离线测试：
