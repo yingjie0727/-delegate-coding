@@ -16,6 +16,35 @@ from unittest.mock import patch
 import delegate as d
 
 
+FAKE_CLI = '''import json
+from pathlib import Path
+import subprocess
+import sys
+import time
+
+if "--version" in sys.argv[1:]:
+    print("fake-codebuddy 0.0.0")
+    raise SystemExit(0)
+here = Path(__file__).resolve().parent
+payload = json.loads((here / "fake-config.json").read_text(encoding="utf-8-sig"))
+Path(payload["argv_file"]).write_text(json.dumps(sys.argv[1:], ensure_ascii=False), encoding="utf-8")
+time.sleep(payload.get("sleep", 0))
+if payload.get("silent"):
+    raise SystemExit(payload.get("exit", 0))
+claim = subprocess.run(payload["claim"], capture_output=True, text=True, check=True)
+token = json.loads(claim.stdout)["claim_token"]
+for name, text in payload.get("writes", {}).items():
+    (Path(payload["workspace"]) / name).write_text(text, encoding="utf-8")
+report = {"schema_version": 1, "task_id": payload["task_id"], "claim_token": token,
+          "executor": payload["executor"], "status": "completed",
+          "summary": "Offline fake CLI implemented the bounded task",
+          "changed_files": sorted(payload.get("writes", {})), "checks": [], "issues": []}
+Path(payload["report_file"]).write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
+subprocess.run(payload["report"], check=True, capture_output=True)
+raise SystemExit(payload.get("exit", 0))
+'''
+
+
 class DelegationTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="delegation-")
@@ -42,6 +71,22 @@ class DelegationTests(unittest.TestCase):
             "base_url": "https://responses.example.invalid/v1", "model": "example-code",
             "context_window": 128000, "key_env": "EXAMPLE_API_KEY", "provider_name": "Offline example",
             "windows_sandbox": "elevated"})
+        self.fake_dir = self.root / "fake cli"
+        self.fake_dir.mkdir()
+        (self.fake_dir / "fake_cli.py").write_text(FAKE_CLI, encoding="utf-8")
+        self.argv_file = self.fake_dir / "argv.json"
+        self.fake_config = self.fake_dir / "fake-config.json"
+        self.fake_cli = self.make_launcher()
+
+    def make_launcher(self):
+        if os.name == "nt":
+            path = self.fake_dir / "codebuddy.cmd"
+            path.write_text(f'@echo off\r\n"{sys.executable}" "%~dp0fake_cli.py" %*\r\n', encoding="utf-8")
+        else:
+            path = self.fake_dir / "codebuddy"
+            path.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$(dirname "$0")/fake_cli.py" "$@"\n', encoding="utf-8")
+            path.chmod(0o755)
+        return path
 
     def git(self, *args):
         return subprocess.run(["git", "-C", str(self.workspace), *args], check=True,
@@ -50,7 +95,8 @@ class DelegationTests(unittest.TestCase):
     def create(self, route="desktop", executor="workbuddy", **overrides):
         options = dict(route=route, executor=executor, workspace=str(self.workspace),
                        task=str(self.spec), allow_no_git=False,
-                       api_root=str(self.profile) if route == "api" else None)
+                       api_root=str(self.profile) if route == "api" else None,
+                       cli_path=None, model=None)
         options.update(overrides)
         return d.create(self.board, argparse.Namespace(**options))
 
@@ -146,6 +192,24 @@ class DelegationTests(unittest.TestCase):
         d.claim(self.board, task["task_id"], "workbuddy")
         with self.assertRaises(ValueError):
             d.claim(self.board, task["task_id"], "workbuddy")
+
+    def configure_fake(self, task, writes=None, silent=False, sleep=0):
+        task_dir = Path(task["task_directory"])
+        config = {"argv_file": str(self.argv_file), "workspace": str(self.workspace),
+            "task_id": task["task_id"], "executor": task["executor"],
+            "report_file": str(task_dir / "worker-report.json"),
+            "claim": [sys.executable, str(task_dir / "controller.py"), "--board", str(self.board),
+                      "claim", "--task-id", task["task_id"], "--executor", task["executor"]],
+            "report": [sys.executable, str(task_dir / "controller.py"), "--board", str(self.board),
+                       "report", "--task-id", task["task_id"], "--file", str(task_dir / "worker-report.json")],
+            "writes": {"main.txt": "after\n"} if writes is None else writes,
+            "silent": silent, "sleep": sleep}
+        d.write_json(self.fake_config, config)
+
+    def run_cli(self, task, **overrides):
+        options = dict(task_id=task["task_id"], executable=None, timeout=20, max_turns=0, dry_run=False)
+        options.update(overrides)
+        return d.run_cli(self.board, argparse.Namespace(**options))
 
     def test_competing_claims_have_one_winner(self):
         task = self.create()
@@ -344,6 +408,136 @@ class DelegationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.run_api(task, self.fake_success)
         self.assertEqual(d.task_state(Path(task["task_directory"]))[1]["state"], "queued")
+
+    def test_cli_task_binds_a_registered_cli_executor(self):
+        with self.assertRaises(ValueError):
+            self.create(route="cli", executor="workbuddy")
+        task = self.create(route="cli", executor="codebuddy", cli_path=str(self.fake_cli))
+        self.assertEqual(task["next_step"], "run-cli")
+        binding = d.read_json(Path(task["task_directory"]) / "task.json")["cli"]
+        self.assertEqual(binding["executable"], str(self.fake_cli.resolve()))
+
+    def test_cli_route_requires_a_clean_git_checkout(self):
+        with self.assertRaises(ValueError):
+            self.create(route="cli", executor="codebuddy", cli_path=str(self.fake_cli), allow_no_git=True)
+
+    def test_cli_missing_executable_is_rejected_at_creation(self):
+        with self.assertRaises(ValueError):
+            self.create(route="cli", executor="codebuddy", cli_path=str(self.root / "missing" / "codebuddy.exe"))
+
+    def test_cli_dry_run_shows_argv_without_dispatching(self):
+        task = self.create(route="cli", executor="codebuddy", cli_path=str(self.fake_cli), model="fake-model")
+        result = self.run_cli(task, dry_run=True)
+        self.assertTrue(result["dry_run"])
+        self.assertIn("-p", result["argv"])
+        self.assertIn("--model", result["argv"])
+        self.assertFalse(self.argv_file.exists())
+        self.assertEqual(d.task_state(Path(task["task_directory"]))[1]["state"], "queued")
+
+    def test_cli_dispatch_reaches_the_common_review_protocol(self):
+        task = self.create(route="cli", executor="codebuddy", cli_path=str(self.fake_cli))
+        self.configure_fake(task)
+        result = self.run_cli(task)
+        self.assertEqual(result["worker_exit_status"], 0)
+        self.assertEqual(result["result"]["state"], "ready_for_review")
+        self.assertEqual(result["result"]["observations"]["actual_changed_files"], ["main.txt"])
+        self.assertFalse(result["result"]["accepted_by_gpt"])
+        received = json.loads(self.argv_file.read_text(encoding="utf-8"))
+        self.assertEqual(received[0], "-p")
+        self.assertIn("TASK.md", received[1])
+        self.assertTrue((Path(task["task_directory"]) / "cli-run.json").is_file())
+        self.assertEqual(self.review(task)["state"], "accepted")
+
+    def test_cli_worker_without_report_is_recorded_as_failure(self):
+        task = self.create(route="cli", executor="codebuddy", cli_path=str(self.fake_cli))
+        self.configure_fake(task, silent=True)
+        result = self.run_cli(task)
+        self.assertEqual(result["worker_exit_status"], 2)
+        self.assertEqual(result["result"]["state"], "failed")
+        with self.assertRaises(ValueError):
+            self.review(task)
+
+    def test_cli_timeout_terminates_and_records_failure(self):
+        task = self.create(route="cli", executor="codebuddy", cli_path=str(self.fake_cli))
+        self.configure_fake(task, sleep=30)
+        result = self.run_cli(task, timeout=1)
+        self.assertEqual(result["worker_exit_status"], 124)
+        self.assertTrue(result["timed_out"])
+        self.assertEqual(result["result"]["state"], "failed")
+
+    def test_cli_executable_cannot_switch_after_creation(self):
+        task = self.create(route="cli", executor="codebuddy", cli_path=str(self.fake_cli))
+        with self.assertRaises(ValueError):
+            self.run_cli(task, executable=sys.executable)
+        self.assertEqual(d.task_state(Path(task["task_directory"]))[1]["state"], "queued")
+
+    def test_desktop_task_cannot_be_run_as_cli(self):
+        task = self.create()
+        with self.assertRaises(ValueError):
+            self.run_cli(task)
+        self.assertEqual(d.task_state(Path(task["task_directory"]))[1]["state"], "queued")
+
+    def test_cli_route_rejects_api_only_arguments(self):
+        with self.assertRaises(ValueError):
+            self.create(route="cli", executor="codebuddy", cli_path=str(self.fake_cli),
+                        api_root=str(self.profile))
+
+    def test_cli_failure_is_nonzero_at_cli_boundary(self):
+        with patch.object(d, "run_cli", return_value={"worker_exit_status": 124}), \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = d.main(["--board", str(self.board), "run-cli", "--task-id", "task-offline"])
+        self.assertEqual(code, 124)
+
+    def test_status_is_read_only_and_follows_the_lifecycle(self):
+        task = self.create(route="cli", executor="codebuddy", cli_path=str(self.fake_cli))
+        queued = d.status(self.board, task["task_id"])
+        self.assertEqual(queued["state"], "queued")
+        self.assertFalse(queued["claimed"])
+        self.assertIsNone(queued["worker_report"])
+        self.assertEqual(d.task_state(Path(task["task_directory"]))[1]["state"], "queued")
+        self.configure_fake(task)
+        self.run_cli(task)
+        done = d.status(self.board, task["task_id"])
+        self.assertEqual(done["state"], "ready_for_review")
+        self.assertTrue(done["claimed"])
+        self.assertEqual(done["cli_run"]["exit_code"], 0)
+        self.assertEqual(done["worker_report"]["status"], "completed")
+
+    def test_status_shows_failure_details_after_an_empty_run(self):
+        task = self.create(route="cli", executor="codebuddy", cli_path=str(self.fake_cli))
+        self.configure_fake(task, silent=True)
+        self.run_cli(task)
+        snapshot = d.status(self.board, task["task_id"])
+        self.assertEqual(snapshot["state"], "failed")
+        self.assertEqual(snapshot["worker_report"]["status"], "failed")
+        self.assertTrue(snapshot["worker_report"]["issues"])
+
+    def test_status_tail_is_bounded_at_the_cli_boundary(self):
+        task = self.create()
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(d.main(["--board", str(self.board), "status", "--task-id", task["task_id"], "--tail", "999"]), 2)
+
+    def test_plain_status_reads_as_a_short_report(self):
+        task = self.create(route="cli", executor="codebuddy", cli_path=str(self.fake_cli), model="fake-model")
+        self.configure_fake(task)
+        self.run_cli(task)
+        text = d.brief(d.status(self.board, task["task_id"]))
+        self.assertIn("完成了，等你验收", text)
+        self.assertIn("fake-model", text)
+        self.assertIn("main.txt", text)
+        self.assertIn("耗时", text)
+        self.assertNotIn("{", text)
+
+    def test_plain_status_is_available_at_the_cli_boundary(self):
+        task, report = self.ready()
+        d.submit(self.board, task["task_id"], report)
+        d.collect(self.board, task["task_id"])
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = d.main(["--board", str(self.board), "status", "--task-id", task["task_id"], "--plain"])
+        self.assertEqual(code, 0)
+        self.assertIn("任务", output.getvalue())
+        self.assertNotIn('"task_id"', output.getvalue())
 
     def test_windows_handoff_shell_quoting_preserves_literals(self):
         if os.name != "nt":
